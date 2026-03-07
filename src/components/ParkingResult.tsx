@@ -47,34 +47,45 @@ const ParkingResult = ({ result, capturedImage, onReset, onSelectSide }: Parking
 
         {/* Direction choices */}
         <div className="grid grid-cols-2 gap-4">
-          {result.directions.map((dir) => (
-            <button
-              key={dir.side}
-              onClick={() => onSelectSide(dir.side)}
-              className={`rounded-2xl p-5 border-2 text-left transition-all active:scale-[0.97] ${
-                dir.canPark
-                  ? "border-success/40 bg-success/5 hover:bg-success/10"
-                  : "border-destructive/40 bg-destructive/5 hover:bg-destructive/10"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-heading">
-                  {dir.side === "left" ? "← Left" : "Right →"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mb-2">
-                {dir.canPark ? (
-                  <CheckCircle2 className="h-5 w-5 text-success flex-shrink-0" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-destructive flex-shrink-0" />
-                )}
-                <span className="text-label text-foreground">
-                  {dir.canPark ? "Can Park" : "No Parking"}
-                </span>
-              </div>
-              <p className="text-body text-muted-foreground">{dir.summary}</p>
-            </button>
-          ))}
+          {result.directions.map((dir) => {
+            const isShortDir = dir.canPark && dir.maxDuration && (() => {
+              const match = dir.maxDuration!.match(/(\d+)\s*min/i);
+              return match && parseInt(match[1], 10) < 10;
+            })();
+
+            const borderColor = !dir.canPark
+              ? "border-destructive/40 bg-destructive/5 hover:bg-destructive/10"
+              : isShortDir
+                ? "border-accent/40 bg-accent/5 hover:bg-accent/10"
+                : "border-success/40 bg-success/5 hover:bg-success/10";
+
+            return (
+              <button
+                key={dir.side}
+                onClick={() => onSelectSide(dir.side)}
+                className={`rounded-2xl p-5 border-2 text-left transition-all active:scale-[0.97] ${borderColor}`}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-heading">
+                    {dir.side === "left" ? "← Left" : "Right →"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  {!dir.canPark ? (
+                    <XCircle className="h-5 w-5 text-destructive flex-shrink-0" />
+                  ) : isShortDir ? (
+                    <AlertTriangle className="h-5 w-5 text-accent flex-shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5 text-success flex-shrink-0" />
+                  )}
+                  <span className="text-label text-foreground">
+                    {!dir.canPark ? "No Parking" : isShortDir ? "Limited Time" : "Can Park"}
+                  </span>
+                </div>
+                <p className="text-body text-muted-foreground">{dir.summary}</p>
+              </button>
+            );
+          })}
         </div>
 
         {/* Scan another */}
