@@ -1,0 +1,9 @@
+{
+  "appId": "app.lovable.6b00ab522c244c7ca34d33fddda744ad",
+  "appName": "ParkSmart",
+  "webDir": "dist",
+  "server": {
+    "url": "https://6b00ab52-2c24-4c7c-a34d-33fddda744ad.lovableproject.com?forceHideBadge=true",
+    "cleartext": true
+  }
+}
