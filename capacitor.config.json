@@ -4,6 +4,11 @@
   "webDir": "dist",
   "server": {
     "url": "https://6b00ab52-2c24-4c7c-a34d-33fddda744ad.lovableproject.com?forceHideBadge=true",
-    "cleartext": true
+    "cleartext": true,
+    "allowNavigation": [
+      "6b00ab52-2c24-4c7c-a34d-33fddda744ad.lovableproject.com",
+      "*.lovableproject.com",
+      "*.lovable.app"
+    ]
   }
 }
