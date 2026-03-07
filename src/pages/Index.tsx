@@ -83,7 +83,7 @@ const Index = () => {
             <Car className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-subheading text-foreground leading-tight">ParkSmart</h1>
+            <h1 className="text-subheading text-foreground leading-tight">Can I Park Here?</h1>
             <p className="text-label text-muted-foreground">Sign Reader</p>
           </div>
         </div>
