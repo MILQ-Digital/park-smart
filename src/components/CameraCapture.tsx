@@ -1,6 +1,7 @@
-import { useRef, useState, useCallback } from "react";
-import { Camera, ImagePlus, X } from "lucide-react";
+import { useRef, useState, useCallback, useEffect } from "react";
+import { Camera, ImagePlus, X, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface CameraCaptureProps {
   onCapture: (imageBase64: string) => void;
@@ -12,23 +13,47 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [stream]);
+
   const startCamera = useCallback(async () => {
+    setCameraError(null);
     try {
+      // Check if getUserMedia is available
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("not-supported");
+      }
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        videoRef.current.play();
+        await videoRef.current.play();
       }
       setStream(mediaStream);
       setIsCameraActive(true);
-    } catch (err) {
-      console.error("Camera access denied:", err);
-      // Fall back to file input
-      fileInputRef.current?.click();
+    } catch (err: any) {
+      console.error("Camera access error:", err);
+      const errorName = err?.name || err?.message || "";
+
+      if (errorName === "not-supported" || errorName === "TypeError") {
+        setCameraError("Camera not available in this browser. Please use 'Upload Photo' instead.");
+      } else if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
+        setCameraError("Camera permission was denied. Please allow camera access or use 'Upload Photo'.");
+      } else if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+        setCameraError("No camera found on this device. Please use 'Upload Photo'.");
+      } else {
+        setCameraError("Couldn't access the camera. Please use 'Upload Photo' instead.");
+      }
+      
+      toast.error("Camera unavailable — try uploading a photo instead.");
     }
   }, []);
 
@@ -36,6 +61,7 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     stream?.getTracks().forEach((t) => t.stop());
     setStream(null);
     setIsCameraActive(false);
+    setCameraError(null);
   }, [stream]);
 
   const capturePhoto = useCallback(() => {
@@ -44,10 +70,24 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    
+    // Check if video has actual content
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      toast.error("Camera feed not ready. Please wait a moment and try again.");
+      return;
+    }
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
     const base64 = canvas.toDataURL("image/jpeg", 0.8);
+    
+    // Validate the captured image isn't empty
+    if (!base64 || base64 === "data:," || base64.length < 100) {
+      toast.error("Failed to capture the photo. Please try again.");
+      return;
+    }
+    
     stopCamera();
     onCapture(base64);
   }, [stopCamera, onCapture]);
@@ -73,7 +113,7 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
             autoPlay
             playsInline
             muted
-            className="w-full aspect-[3/4] object-cover"
+            className="w-full aspect-[3/4] object-cover bg-foreground/5"
           />
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70%] h-[40%] border-2 border-primary/60 rounded-xl" />
@@ -107,6 +147,15 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
           Take a photo of a parking sign to check availability
         </p>
       </div>
+
+      {/* Camera error message */}
+      {cameraError && (
+        <div className="w-full rounded-xl bg-warning/10 border border-warning/30 p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
+          <p className="text-body text-foreground">{cameraError}</p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 w-full">
         <Button variant="capture" size="lg" onClick={startCamera} disabled={isAnalyzing} className="w-full">
           <Camera className="h-6 w-6" />
