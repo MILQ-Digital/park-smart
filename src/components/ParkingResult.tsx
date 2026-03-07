@@ -86,6 +86,24 @@ const ParkingResult = ({ result, capturedImage, onReset, onSelectSide }: Parking
     );
   }
 
+  // Check if duration is under 10 minutes
+  const isShortDuration = result.canPark && result.maxDuration && (() => {
+    const match = result.maxDuration!.match(/(\d+)\s*min/i);
+    return match && parseInt(match[1], 10) < 10;
+  })();
+
+  const verdictColor = !result.canPark
+    ? "bg-destructive text-destructive-foreground"
+    : isShortDuration
+      ? "bg-accent text-accent-foreground"
+      : "bg-success text-success-foreground";
+
+  const verdictLabel = !result.canPark
+    ? "No Parking"
+    : isShortDuration
+      ? "Limited Time"
+      : "You Can Park Here";
+
   return (
     <div className="flex flex-col gap-5 animate-slide-up">
       {/* Captured image preview */}
@@ -94,18 +112,18 @@ const ParkingResult = ({ result, capturedImage, onReset, onSelectSide }: Parking
       </div>
 
       {/* Main verdict */}
-      <div
-        className={`rounded-2xl p-6 flex items-center gap-4 shadow-md ${
-          result.canPark ? "bg-success text-success-foreground" : "bg-destructive text-destructive-foreground"
-        }`}
-      >
+      <div className={`rounded-2xl p-6 flex items-center gap-4 shadow-md ${verdictColor}`}>
         {result.canPark ? (
-          <CheckCircle2 className="h-12 w-12 flex-shrink-0" />
+          isShortDuration ? (
+            <AlertTriangle className="h-12 w-12 flex-shrink-0" />
+          ) : (
+            <CheckCircle2 className="h-12 w-12 flex-shrink-0" />
+          )
         ) : (
           <XCircle className="h-12 w-12 flex-shrink-0" />
         )}
         <div>
-          <p className="text-heading">{result.canPark ? "You Can Park Here" : "No Parking"}</p>
+          <p className="text-heading">{verdictLabel}</p>
           <p className="text-body-lg opacity-90">{result.summary}</p>
         </div>
       </div>
