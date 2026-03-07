@@ -1,6 +1,14 @@
 import { CheckCircle2, XCircle, Clock, DollarSign, AlertTriangle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+export interface DirectionInfo {
+  side: "left" | "right";
+  canPark: boolean;
+  summary: string;
+  maxDuration?: string | null;
+  cost?: string | null;
+}
+
 export interface ParkingInfo {
   canPark: boolean;
   summary: string;
@@ -8,15 +16,76 @@ export interface ParkingInfo {
   cost: string | null;
   restrictions: string[];
   timeDependent: string | null;
+  hasMultipleDirections?: boolean;
+  directions?: DirectionInfo[];
 }
 
 interface ParkingResultProps {
   result: ParkingInfo;
   capturedImage: string;
   onReset: () => void;
+  onSelectSide?: (side: "left" | "right") => void;
 }
 
-const ParkingResult = ({ result, capturedImage, onReset }: ParkingResultProps) => {
+const ParkingResult = ({ result, capturedImage, onReset, onSelectSide }: ParkingResultProps) => {
+  // If the sign has multiple directions and we haven't picked a side yet
+  if (result.hasMultipleDirections && result.directions && result.directions.length > 0 && onSelectSide) {
+    return (
+      <div className="flex flex-col gap-5 animate-slide-up">
+        {/* Captured image preview */}
+        <div className="relative w-full rounded-2xl overflow-hidden shadow-md">
+          <img src={capturedImage} alt="Captured parking sign" className="w-full aspect-video object-cover" />
+        </div>
+
+        {/* Direction prompt */}
+        <div className="rounded-2xl p-6 bg-info/10 border border-info/30 text-center">
+          <p className="text-heading text-foreground mb-2">Which side are you parking?</p>
+          <p className="text-body text-muted-foreground">
+            This sign has different rules for each direction. Tap the side where your car is.
+          </p>
+        </div>
+
+        {/* Direction choices */}
+        <div className="grid grid-cols-2 gap-4">
+          {result.directions.map((dir) => (
+            <button
+              key={dir.side}
+              onClick={() => onSelectSide(dir.side)}
+              className={`rounded-2xl p-5 border-2 text-left transition-all active:scale-[0.97] ${
+                dir.canPark
+                  ? "border-success/40 bg-success/5 hover:bg-success/10"
+                  : "border-destructive/40 bg-destructive/5 hover:bg-destructive/10"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-heading">
+                  {dir.side === "left" ? "← Left" : "Right →"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                {dir.canPark ? (
+                  <CheckCircle2 className="h-5 w-5 text-success flex-shrink-0" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-destructive flex-shrink-0" />
+                )}
+                <span className="text-label text-foreground">
+                  {dir.canPark ? "Can Park" : "No Parking"}
+                </span>
+              </div>
+              <p className="text-body text-muted-foreground">{dir.summary}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Scan another */}
+        <Button variant="outline" size="lg" onClick={onReset} className="w-full mt-2">
+          <ArrowLeft className="h-5 w-5" />
+          Scan Another Sign
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 animate-slide-up">
       {/* Captured image preview */}
