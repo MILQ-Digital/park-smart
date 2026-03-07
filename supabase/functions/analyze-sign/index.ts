@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { image } = await req.json();
+    const { image, currentTime, timezone, side } = await req.json();
     if (!image || !image.startsWith("data:image/")) {
       return new Response(JSON.stringify({ error: "No valid image provided. Please upload a photo of a parking sign." }), {
         status: 400,
@@ -20,7 +20,6 @@ serve(async (req) => {
       });
     }
 
-    // Ensure image isn't too large (limit ~4MB base64)
     if (image.length > 5_500_000) {
       return new Response(JSON.stringify({ error: "Image is too large. Please use a smaller photo." }), {
         status: 400,
@@ -33,28 +32,38 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Build the message with the image
+    const timeContext = currentTime
+      ? `The current date and time is: ${currentTime} (timezone: ${timezone || "unknown"}). Use this to determine which rules currently apply.`
+      : `Use the current server time as a rough guide: ${new Date().toISOString()}.`;
+
+    const sideContext = side
+      ? `The user is asking specifically about the ${side.toUpperCase()} side of the sign (the direction the ${side} arrow points to).`
+      : "";
+
+    const systemPrompt = `You are a parking sign interpreter. You analyze images of parking signs and return structured parking information.
+
+${timeContext}
+
+${sideContext}
+
+IMPORTANT RULES:
+1. Determine if parking is allowed RIGHT NOW based on the current day, date, and time.
+2. If the sign has arrows pointing in different directions (left and right), indicating different rules for different spots, you MUST set "hasMultipleDirections" to true and describe each direction's rules in "directions".
+3. If the user has specified a side, only evaluate rules for that side.
+4. Be practical and helpful — write as if explaining to someone who just wants a simple answer.
+5. You MUST respond by calling the "parse_parking_sign" tool.`;
+
+    const userText = side
+      ? `Please analyze this parking sign for the ${side.toUpperCase()} side and tell me if I can park there right now, for how long, and any costs or restrictions.`
+      : "Please analyze this parking sign and tell me if I can park here right now, for how long, and any costs or restrictions. If the sign has arrows pointing in different directions for different spots, identify that.";
+
     const messages = [
-      {
-        role: "system",
-        content: `You are a parking sign interpreter. You analyze images of parking signs and return structured parking information.
-
-You MUST respond by calling the "parse_parking_sign" tool with the extracted information. Be practical and helpful for someone who just wants to know if they can park.
-
-Consider the current day and time context: the user is checking RIGHT NOW.
-If the sign has time-dependent rules, explain which rules apply now and which apply at other times.`,
-      },
+      { role: "system", content: systemPrompt },
       {
         role: "user",
         content: [
-          {
-            type: "text",
-            text: "Please analyze this parking sign and tell me if I can park here right now, for how long, and any costs or restrictions.",
-          },
-          {
-            type: "image_url",
-            image_url: { url: image },
-          },
+          { type: "text", text: userText },
+          { type: "image_url", image_url: { url: image } },
         ],
       },
     ];
@@ -79,15 +88,15 @@ If the sign has time-dependent rules, explain which rules apply now and which ap
                 properties: {
                   canPark: {
                     type: "boolean",
-                    description: "Whether parking is currently allowed at this spot",
+                    description: "Whether parking is currently allowed. If hasMultipleDirections is true and no side was specified, set to true if at least one direction allows parking.",
                   },
                   summary: {
                     type: "string",
-                    description: "A brief, friendly summary of the parking rules in plain language (1-2 sentences)",
+                    description: "A brief, friendly summary of the parking rules in plain language (1-2 sentences). Include the current time context.",
                   },
                   maxDuration: {
                     type: "string",
-                    description: "Maximum parking duration allowed, e.g. '2 hours', '30 minutes'. Null if no limit.",
+                    description: "Maximum parking duration allowed, e.g. '2 hours', '30 minutes'. Null if no limit or if multiple directions.",
                   },
                   cost: {
                     type: "string",
@@ -102,8 +111,32 @@ If the sign has time-dependent rules, explain which rules apply now and which ap
                     type: "string",
                     description: "Explanation of how rules change by time of day or day of week. Null if rules are constant.",
                   },
+                  hasMultipleDirections: {
+                    type: "boolean",
+                    description: "True if the sign has arrows pointing in different directions (left/right) with different rules for different parking spots.",
+                  },
+                  directions: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        side: {
+                          type: "string",
+                          enum: ["left", "right"],
+                          description: "Which direction the arrow points",
+                        },
+                        canPark: { type: "boolean", description: "Whether parking is allowed on this side right now" },
+                        summary: { type: "string", description: "Brief summary of rules for this direction" },
+                        maxDuration: { type: "string", description: "Time limit for this side. Null if none." },
+                        cost: { type: "string", description: "Cost for this side. Null if not mentioned." },
+                      },
+                      required: ["side", "canPark", "summary"],
+                      additionalProperties: false,
+                    },
+                    description: "Details for each direction if hasMultipleDirections is true. Empty array otherwise.",
+                  },
                 },
-                required: ["canPark", "summary", "restrictions"],
+                required: ["canPark", "summary", "restrictions", "hasMultipleDirections", "directions"],
                 additionalProperties: false,
               },
             },
