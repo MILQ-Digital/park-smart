@@ -13,8 +13,16 @@ serve(async (req) => {
 
   try {
     const { image } = await req.json();
-    if (!image) {
-      return new Response(JSON.stringify({ error: "No image provided" }), {
+    if (!image || !image.startsWith("data:image/")) {
+      return new Response(JSON.stringify({ error: "No valid image provided. Please upload a photo of a parking sign." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Ensure image isn't too large (limit ~4MB base64)
+    if (image.length > 5_500_000) {
+      return new Response(JSON.stringify({ error: "Image is too large. Please use a smaller photo." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

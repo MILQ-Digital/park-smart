@@ -14,6 +14,12 @@ const Index = () => {
   const [result, setResult] = useState<ParkingInfo | null>(null);
 
   const analyzeSign = async (imageBase64: string) => {
+    // Validate the image data before sending
+    if (!imageBase64 || !imageBase64.startsWith("data:image/")) {
+      toast.error("Invalid image. Please try taking the photo again.");
+      return;
+    }
+
     setCapturedImage(imageBase64);
     setState("analyzing");
 
@@ -24,6 +30,10 @@ const Index = () => {
 
       if (error) {
         throw new Error(error.message || "Failed to analyze sign");
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
       setResult(data as ParkingInfo);
