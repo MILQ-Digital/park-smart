@@ -3,7 +3,7 @@
   "appName": "Can I Park Here?",
   "webDir": "dist",
   "server": {
-    "url": "https://6b00ab52-2c24-4c7c-a34d-33fddda744ad.lovableproject.com?forceHideBadge=true",
+    "url": "https://sign-to-spot.lovable.app?forceHideBadge=true",
     "cleartext": true,
     "allowNavigation": [
       "6b00ab52-2c24-4c7c-a34d-33fddda744ad.lovableproject.com",
