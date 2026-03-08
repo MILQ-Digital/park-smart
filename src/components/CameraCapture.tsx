@@ -80,7 +80,7 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
-    const base64 = canvas.toDataURL("image/jpeg", 0.8);
+    const base64 = canvas.toDataURL("image/jpeg", 0.7);
     
     // Validate the captured image isn't empty
     if (!base64 || base64 === "data:," || base64.length < 100) {
@@ -89,7 +89,9 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     }
     
     stopCamera();
-    onCapture(base64);
+    // Resize if needed
+    const compressed = await resizeImage(base64);
+    onCapture(compressed);
   }, [stopCamera, onCapture]);
 
   const resizeImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
