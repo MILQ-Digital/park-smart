@@ -64,7 +64,7 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     setCameraError(null);
   }, [stream]);
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
