@@ -2,13 +2,11 @@
   "appId": "app.lovable.caniparkhere",
   "appName": "Can I Park Here?",
   "webDir": "dist",
-  "server": {
-    "url": "https://sign-to-spot.lovable.app?forceHideBadge=true",
-    "cleartext": true,
-    "allowNavigation": [
-      "6b00ab52-2c24-4c7c-a34d-33fddda744ad.lovableproject.com",
-      "*.lovableproject.com",
-      "*.lovable.app"
-    ]
+  "plugins": {
+    "Camera": {
+      "permissions": {
+        "camera": "This app needs camera access to take photos of parking signs"
+      }
+    }
   }
 }
