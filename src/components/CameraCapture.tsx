@@ -15,12 +15,24 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const isNative = Capacitor.isNativePlatform();
+  const platform = Capacitor.getPlatform();
+  console.log("[CameraCapture] isNative:", isNative, "platform:", platform);
 
   const takePhoto = useCallback(async (source: CameraSource) => {
     setCameraError(null);
+    console.log("[CameraCapture] takePhoto called, source:", source, "isNative:", isNative);
     try {
       if (isNative) {
-        // Use Capacitor Camera plugin on native
+        console.log("[CameraCapture] Using Capacitor Camera plugin");
+        // Check permissions first
+        const permStatus = await Camera.checkPermissions();
+        console.log("[CameraCapture] Permission status:", JSON.stringify(permStatus));
+        
+        if (permStatus.camera === "denied" || permStatus.photos === "denied") {
+          const requested = await Camera.requestPermissions({ permissions: ["camera", "photos"] });
+          console.log("[CameraCapture] Requested permissions:", JSON.stringify(requested));
+        }
+
         const image = await Camera.getPhoto({
           quality: 80,
           allowEditing: false,
@@ -30,12 +42,14 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
           correctOrientation: true,
         });
 
+        console.log("[CameraCapture] Photo captured, has dataUrl:", !!image.dataUrl);
         if (image.dataUrl) {
           onCapture(image.dataUrl);
         } else {
           toast.error("Failed to capture photo. Please try again.");
         }
       } else {
+        console.log("[CameraCapture] Using web fallback");
         // Web fallback
         if (source === CameraSource.Camera) {
           await startWebCamera();
@@ -44,10 +58,9 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
         }
       }
     } catch (err: any) {
-      console.error("Camera error:", err);
+      console.error("[CameraCapture] Camera error:", err, JSON.stringify(err));
       const msg = err?.message || "";
       if (msg.includes("cancelled") || msg.includes("canceled") || msg.includes("User cancelled")) {
-        // User cancelled, no error needed
         return;
       }
       setCameraError("Couldn't access the camera. Please try uploading a photo instead.");
