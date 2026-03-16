@@ -2,6 +2,9 @@
   "appId": "app.lovable.caniparkhere",
   "appName": "Can I Park Here?",
   "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  },
   "plugins": {
     "Camera": {
       "permissions": {
