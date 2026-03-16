@@ -1,7 +1,9 @@
-import { useRef, useState, useCallback, useEffect } from "react";
-import { Camera, ImagePlus, X, AlertCircle } from "lucide-react";
+import { useRef, useState, useCallback } from "react";
+import { Camera as CameraIcon, ImagePlus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import { Capacitor } from "@capacitor/core";
 
 interface CameraCaptureProps {
   onCapture: (imageBase64: string) => void;
@@ -9,90 +11,98 @@ interface CameraCaptureProps {
 }
 
 const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
 
-  // Cleanup stream on unmount
-  useEffect(() => {
-    return () => {
-      stream?.getTracks().forEach((t) => t.stop());
-    };
-  }, [stream]);
+  const isNative = Capacitor.isNativePlatform();
 
-  const startCamera = useCallback(async () => {
+  const takePhoto = useCallback(async (source: CameraSource) => {
     setCameraError(null);
     try {
-      // Check if getUserMedia is available
+      if (isNative) {
+        // Use Capacitor Camera plugin on native
+        const image = await Camera.getPhoto({
+          quality: 80,
+          allowEditing: false,
+          resultType: CameraResultType.DataUrl,
+          source,
+          width: 1280,
+          correctOrientation: true,
+        });
+
+        if (image.dataUrl) {
+          onCapture(image.dataUrl);
+        } else {
+          toast.error("Failed to capture photo. Please try again.");
+        }
+      } else {
+        // Web fallback
+        if (source === CameraSource.Camera) {
+          await startWebCamera();
+        } else {
+          fileInputRef.current?.click();
+        }
+      }
+    } catch (err: any) {
+      console.error("Camera error:", err);
+      const msg = err?.message || "";
+      if (msg.includes("cancelled") || msg.includes("canceled") || msg.includes("User cancelled")) {
+        // User cancelled, no error needed
+        return;
+      }
+      setCameraError("Couldn't access the camera. Please try uploading a photo instead.");
+      toast.error("Camera unavailable — try uploading a photo instead.");
+    }
+  }, [isNative, onCapture]);
+
+  // Web-only camera fallback using getUserMedia
+  const startWebCamera = useCallback(async () => {
+    try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("not-supported");
       }
+      // Create a temporary video + canvas to capture
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
-      }
-      setStream(mediaStream);
-      setIsCameraActive(true);
-    } catch (err: any) {
-      console.error("Camera access error:", err);
-      const errorName = err?.name || err?.message || "";
 
-      if (errorName === "not-supported" || errorName === "TypeError") {
-        setCameraError("Camera not available in this browser. Please use 'Upload Photo' instead.");
-      } else if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
-        setCameraError("Camera permission was denied. Please allow camera access or use 'Upload Photo'.");
-      } else if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
-        setCameraError("No camera found on this device. Please use 'Upload Photo'.");
-      } else {
-        setCameraError("Couldn't access the camera. Please use 'Upload Photo' instead.");
+      const video = document.createElement("video");
+      video.srcObject = mediaStream;
+      video.setAttribute("playsinline", "true");
+      await video.play();
+
+      // Wait for video to be ready
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        onCapture(dataUrl);
       }
-      
+
+      mediaStream.getTracks().forEach((t) => t.stop());
+    } catch {
+      setCameraError("Camera not available in this browser. Please use 'Upload Photo' instead.");
       toast.error("Camera unavailable — try uploading a photo instead.");
     }
-  }, []);
+  }, [onCapture]);
 
-  const stopCamera = useCallback(() => {
-    stream?.getTracks().forEach((t) => t.stop());
-    setStream(null);
-    setIsCameraActive(false);
-    setCameraError(null);
-  }, [stream]);
-
-  const capturePhoto = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    
-    // Check if video has actual content
-    if (video.videoWidth === 0 || video.videoHeight === 0) {
-      toast.error("Camera feed not ready. Please wait a moment and try again.");
-      return;
-    }
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
-    const base64 = canvas.toDataURL("image/jpeg", 0.7);
-    
-    // Validate the captured image isn't empty
-    if (!base64 || base64 === "data:," || base64.length < 100) {
-      toast.error("Failed to capture the photo. Please try again.");
-      return;
-    }
-    
-    stopCamera();
-    // Resize if needed
-    const compressed = await resizeImage(base64);
-    onCapture(compressed);
-  }, [stopCamera, onCapture]);
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      const compressed = await resizeImage(base64);
+      onCapture(compressed);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const resizeImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
     return new Promise((resolve) => {
@@ -114,57 +124,11 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     });
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64 = reader.result as string;
-      const compressed = await resizeImage(base64);
-      onCapture(compressed);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-
-  if (isCameraActive) {
-    return (
-      <div className="relative flex flex-col items-center">
-        <div className="relative w-full overflow-hidden rounded-2xl border-2 border-primary/20 shadow-lg">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full aspect-[3/4] object-cover bg-foreground/5"
-          />
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70%] h-[40%] border-2 border-primary/60 rounded-xl" />
-          </div>
-        </div>
-        <p className="mt-3 text-body-lg text-muted-foreground text-center">
-          Point at the parking sign
-        </p>
-        <div className="mt-4 flex gap-4">
-          <Button variant="outline" size="lg" onClick={stopCamera}>
-            <X className="h-5 w-5" />
-            Cancel
-          </Button>
-          <Button variant="capture" size="lg" onClick={capturePhoto} disabled={isAnalyzing}>
-            <Camera className="h-6 w-6" />
-            Take Photo
-          </Button>
-        </div>
-        <canvas ref={canvasRef} className="hidden" />
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col items-center gap-6">
       <div className="w-full aspect-[3/4] max-h-[50vh] rounded-2xl bg-secondary flex flex-col items-center justify-center gap-4 border-2 border-dashed border-border">
         <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-          <Camera className="w-10 h-10 text-primary" />
+          <CameraIcon className="w-10 h-10 text-primary" />
         </div>
         <p className="text-body-lg text-muted-foreground text-center px-8">
           Take a photo of a parking sign to check availability
@@ -180,11 +144,29 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       )}
 
       <div className="flex flex-col gap-3 w-full">
-        <Button variant="capture" size="lg" onClick={startCamera} disabled={isAnalyzing} className="w-full">
-          <Camera className="h-6 w-6" />
+        <Button
+          variant="capture"
+          size="lg"
+          onClick={() => takePhoto(CameraSource.Camera)}
+          disabled={isAnalyzing}
+          className="w-full"
+        >
+          <CameraIcon className="h-6 w-6" />
           Open Camera
         </Button>
-        <Button variant="outline" size="default" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing} className="w-full">
+        <Button
+          variant="outline"
+          size="default"
+          onClick={() => {
+            if (isNative) {
+              takePhoto(CameraSource.Photos);
+            } else {
+              fileInputRef.current?.click();
+            }
+          }}
+          disabled={isAnalyzing}
+          className="w-full"
+        >
           <ImagePlus className="h-5 w-5" />
           Upload Photo
         </Button>
@@ -193,7 +175,6 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={handleFileSelect}
       />
