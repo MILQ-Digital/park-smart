@@ -16,6 +16,8 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
   const [isOpeningPicker, setIsOpeningPicker] = useState(false);
 
   const isNative = Capacitor.isNativePlatform();
+  const platform = Capacitor.getPlatform();
+  const isIOSNative = isNative && platform === "ios";
 
   // Web-only camera fallback
   const startWebCamera = useCallback(async () => {
