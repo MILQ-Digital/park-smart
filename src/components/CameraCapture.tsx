@@ -57,15 +57,17 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       const current = await Camera.checkPermissions();
       if (hasRequiredPermission(source, current)) return true;
 
+      const permissionsToRequest: ("camera" | "photos")[] =
+        source === CameraSource.Camera ? ["camera"] : ["photos"];
+
       const requested = await Camera.requestPermissions({
-        permissions: ["camera", "photos"],
+        permissions: permissionsToRequest,
       });
 
       return hasRequiredPermission(source, requested);
     } catch (error) {
       console.error("Camera permission check failed:", error);
-      // Let getPhoto surface a more specific native error if this fails
-      return true;
+      return false;
     }
   }, []);
 
