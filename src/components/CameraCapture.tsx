@@ -16,55 +16,6 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
 
   const isNative = Capacitor.isNativePlatform();
 
-  const takeNativePhoto = useCallback(async (source: CameraSource) => {
-    setCameraError(null);
-    try {
-      const permStatus = await Camera.checkPermissions();
-      if (permStatus.camera === "denied" || permStatus.photos === "denied") {
-        await Camera.requestPermissions({ permissions: ["camera", "photos"] });
-      }
-
-      const image = await Camera.getPhoto({
-        quality: 80,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source,
-        width: 1280,
-        correctOrientation: true,
-      });
-
-      if (image.dataUrl) {
-        onCapture(image.dataUrl);
-      } else {
-        toast.error("Failed to capture photo. Please try again.");
-      }
-    } catch (err: any) {
-      const msg = err?.message || "";
-      if (msg.includes("cancelled") || msg.includes("canceled") || msg.includes("User cancelled")) return;
-      setCameraError("Couldn't access the camera. Please try uploading a photo instead.");
-      toast.error("Camera unavailable — try uploading a photo instead.");
-    }
-  }, [onCapture]);
-
-  const openCamera = useCallback(() => {
-    setCameraError(null);
-    if (isNative) {
-      // Use CameraSource.Camera to open native camera directly
-      takeNativePhoto(CameraSource.Camera);
-    } else {
-      startWebCamera();
-    }
-  }, [isNative, takeNativePhoto]);
-
-  const uploadPhoto = useCallback(() => {
-    setCameraError(null);
-    if (isNative) {
-      takeNativePhoto(CameraSource.Photos);
-    } else {
-      fileInputRef.current?.click();
-    }
-  }, [isNative, takeNativePhoto]);
-
   // Web-only camera fallback
   const startWebCamera = useCallback(async () => {
     try {
@@ -91,6 +42,78 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       toast.error("Camera unavailable — try uploading a photo instead.");
     }
   }, [onCapture]);
+
+  const hasRequiredPermission = (source: CameraSource, permissions: { camera: string; photos: string }) => {
+    const cameraGranted = permissions.camera === "granted";
+    const photosGranted = permissions.photos === "granted" || permissions.photos === "limited";
+    return source === CameraSource.Camera ? cameraGranted : photosGranted;
+  };
+
+  const ensureNativePermissions = useCallback(async (source: CameraSource) => {
+    const current = await Camera.checkPermissions();
+    if (hasRequiredPermission(source, current)) return true;
+
+    const requested = await Camera.requestPermissions({
+      permissions: source === CameraSource.Camera ? ["camera"] : ["photos"],
+    });
+
+    return hasRequiredPermission(source, requested);
+  }, []);
+
+  const takeNativePhoto = useCallback(async (source: CameraSource) => {
+    setCameraError(null);
+    try {
+      const hasPermission = await ensureNativePermissions(source);
+      if (!hasPermission) {
+        const deniedMessage =
+          source === CameraSource.Camera
+            ? "Camera permission is required. Please enable it in iPhone Settings."
+            : "Photo library permission is required. Please enable it in iPhone Settings.";
+        setCameraError(deniedMessage);
+        toast.error(deniedMessage);
+        return;
+      }
+
+      const image = await Camera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source,
+        width: 1280,
+        correctOrientation: true,
+      });
+
+      if (image.dataUrl) {
+        onCapture(image.dataUrl);
+      } else {
+        toast.error("Failed to capture photo. Please try again.");
+      }
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("cancelled") || msg.includes("canceled") || msg.includes("User cancelled")) return;
+      console.error("Native camera error:", err);
+      setCameraError("Couldn't access the camera. Please try uploading a photo instead.");
+      toast.error("Camera unavailable — try uploading a photo instead.");
+    }
+  }, [ensureNativePermissions, onCapture]);
+
+  const openCamera = useCallback(() => {
+    setCameraError(null);
+    if (isNative) {
+      takeNativePhoto(CameraSource.Camera);
+    } else {
+      startWebCamera();
+    }
+  }, [isNative, startWebCamera, takeNativePhoto]);
+
+  const uploadPhoto = useCallback(() => {
+    setCameraError(null);
+    if (isNative) {
+      takeNativePhoto(CameraSource.Photos);
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [isNative, takeNativePhoto]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
