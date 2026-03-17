@@ -8,7 +8,8 @@
   "plugins": {
     "Camera": {
       "permissions": {
-        "camera": "This app needs camera access to take photos of parking signs"
+        "camera": "This app needs camera access to take photos of parking signs",
+        "photos": "This app needs photo library access so you can upload parking sign photos"
       }
     },
     "CameraPreview": {
