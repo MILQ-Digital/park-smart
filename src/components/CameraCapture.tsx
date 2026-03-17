@@ -57,15 +57,17 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       const current = await Camera.checkPermissions();
       if (hasRequiredPermission(source, current)) return true;
 
+      const permissionsToRequest: ("camera" | "photos")[] =
+        source === CameraSource.Camera ? ["camera"] : ["photos"];
+
       const requested = await Camera.requestPermissions({
-        permissions: ["camera", "photos"],
+        permissions: permissionsToRequest,
       });
 
       return hasRequiredPermission(source, requested);
     } catch (error) {
       console.error("Camera permission check failed:", error);
-      // Let getPhoto surface a more specific native error if this fails
-      return true;
+      return false;
     }
   }, []);
 
@@ -126,42 +128,50 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       console.log("[Camera] Starting native photo, source:", source);
       console.log("[Camera] Platform:", Capacitor.getPlatform());
 
-      // Check permissions
-      try {
-        const current = await Camera.checkPermissions();
-        console.log("[Camera] Current permissions:", JSON.stringify(current));
-
-        if (!hasRequiredPermission(source, current)) {
-          console.log("[Camera] Requesting permissions...");
-          const requested = await Camera.requestPermissions({
-            permissions: ["camera", "photos"],
-          });
-          console.log("[Camera] Requested permissions result:", JSON.stringify(requested));
-
-          if (!hasRequiredPermission(source, requested)) {
-            const deniedMessage =
-              source === CameraSource.Camera
-                ? "Camera permission is required. Please enable it in iPhone Settings."
-                : "Photo library permission is required. Please enable it in iPhone Settings.";
-            setCameraError(deniedMessage);
-            toast.error(deniedMessage);
-            return;
-          }
-        }
-      } catch (permErr) {
-        console.warn("[Camera] Permission check failed, attempting getPhoto anyway:", permErr);
+      const hasPermission = await ensureNativePermissions(source);
+      if (!hasPermission) {
+        const deniedMessage =
+          source === CameraSource.Camera
+            ? "Camera permission is required. Enable it in iPhone Settings > Can I Park Here."
+            : "Photo library permission is required. Enable it in iPhone Settings > Can I Park Here.";
+        setCameraError(deniedMessage);
+        toast.error(deniedMessage);
+        return;
       }
 
-      console.log("[Camera] Calling Camera.getPhoto...");
+      if (source === CameraSource.Photos) {
+        const gallery = await Camera.pickImages({
+          quality: 80,
+          width: 1280,
+          correctOrientation: true,
+          limit: 1,
+          presentationStyle: "popover",
+        });
+
+        const selected = gallery.photos?.[0];
+        if (!selected?.webPath) {
+          toast.error("No photo selected.");
+          return;
+        }
+
+        const response = await fetch(selected.webPath);
+        const blob = await response.blob();
+        const dataUrl = await blobToDataUrl(blob);
+        const compressed = await resizeImage(dataUrl);
+        onCapture(compressed);
+        return;
+      }
+
       const image = await Camera.getPhoto({
         quality: 80,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
-        source,
+        source: CameraSource.Camera,
         width: 1280,
         correctOrientation: true,
+        saveToGallery: false,
+        presentationStyle: "popover",
       });
-      console.log("[Camera] getPhoto returned, has dataUrl:", !!image.dataUrl, "has webPath:", !!image.webPath);
 
       if (image.dataUrl) {
         const compressed = await resizeImage(image.dataUrl);
@@ -206,9 +216,19 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
         return;
       }
 
-      // Fallback to file input
-      console.log("[Camera] Falling back to file input");
+      if (normalizedMsg.includes("nsphotolibraryaddusagedescription")) {
+        const configMessage = "Missing iOS Photo Add permission in Info.plist. Add 'Privacy - Photo Library Additions Usage Description' and rebuild.";
+        setCameraError(configMessage);
+        toast.error(configMessage);
+        return;
+      }
+
       openFileInputFallback(source);
+      toast.error(
+        source === CameraSource.Camera
+          ? "Native camera failed — fallback picker opened."
+          : "Native photo picker failed — fallback picker opened."
+      );
     } finally {
       setIsOpeningPicker(false);
     }
