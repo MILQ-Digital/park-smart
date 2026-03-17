@@ -13,6 +13,7 @@ interface CameraCaptureProps {
 const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isOpeningPicker, setIsOpeningPicker] = useState(false);
 
   const isNative = Capacitor.isNativePlatform();
 
@@ -43,90 +44,30 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     }
   }, [onCapture]);
 
+  const isGranted = (permission: string) => permission === "granted" || permission === "limited";
+
   const hasRequiredPermission = (source: CameraSource, permissions: { camera: string; photos: string }) => {
-    const cameraGranted = permissions.camera === "granted";
-    const photosGranted = permissions.photos === "granted" || permissions.photos === "limited";
-    return source === CameraSource.Camera ? cameraGranted : photosGranted;
+    return source === CameraSource.Camera
+      ? isGranted(permissions.camera)
+      : isGranted(permissions.photos);
   };
 
   const ensureNativePermissions = useCallback(async (source: CameraSource) => {
-    const current = await Camera.checkPermissions();
-    if (hasRequiredPermission(source, current)) return true;
-
-    const requested = await Camera.requestPermissions({
-      permissions: source === CameraSource.Camera ? ["camera"] : ["photos"],
-    });
-
-    return hasRequiredPermission(source, requested);
-  }, []);
-
-  const takeNativePhoto = useCallback(async (source: CameraSource) => {
-    setCameraError(null);
     try {
-      const hasPermission = await ensureNativePermissions(source);
-      if (!hasPermission) {
-        const deniedMessage =
-          source === CameraSource.Camera
-            ? "Camera permission is required. Please enable it in iPhone Settings."
-            : "Photo library permission is required. Please enable it in iPhone Settings.";
-        setCameraError(deniedMessage);
-        toast.error(deniedMessage);
-        return;
-      }
+      const current = await Camera.checkPermissions();
+      if (hasRequiredPermission(source, current)) return true;
 
-      const image = await Camera.getPhoto({
-        quality: 80,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source,
-        width: 1280,
-        correctOrientation: true,
+      const requested = await Camera.requestPermissions({
+        permissions: ["camera", "photos"],
       });
 
-      if (image.dataUrl) {
-        onCapture(image.dataUrl);
-      } else {
-        toast.error("Failed to capture photo. Please try again.");
-      }
-    } catch (err: any) {
-      const msg = err?.message || "";
-      if (msg.includes("cancelled") || msg.includes("canceled") || msg.includes("User cancelled")) return;
-      console.error("Native camera error:", err);
-      setCameraError("Couldn't access the camera. Please try uploading a photo instead.");
-      toast.error("Camera unavailable — try uploading a photo instead.");
+      return hasRequiredPermission(source, requested);
+    } catch (error) {
+      console.error("Camera permission check failed:", error);
+      // Let getPhoto surface a more specific native error if this fails
+      return true;
     }
-  }, [ensureNativePermissions, onCapture]);
-
-  const openCamera = useCallback(() => {
-    setCameraError(null);
-    if (isNative) {
-      takeNativePhoto(CameraSource.Camera);
-    } else {
-      startWebCamera();
-    }
-  }, [isNative, startWebCamera, takeNativePhoto]);
-
-  const uploadPhoto = useCallback(() => {
-    setCameraError(null);
-    if (isNative) {
-      takeNativePhoto(CameraSource.Photos);
-    } else {
-      fileInputRef.current?.click();
-    }
-  }, [isNative, takeNativePhoto]);
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64 = reader.result as string;
-      const compressed = await resizeImage(base64);
-      onCapture(compressed);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
+  }, []);
 
   const resizeImage = (dataUrl: string, maxWidth = 1280, quality = 0.7): Promise<string> => {
     return new Promise((resolve) => {
@@ -146,6 +87,148 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       };
       img.src = dataUrl;
     });
+  };
+
+  const blobToDataUrl = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Failed to process selected image"));
+        }
+      };
+      reader.onerror = () => reject(new Error("Failed to process selected image"));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const openFileInputFallback = (source: CameraSource) => {
+    if (!fileInputRef.current) return;
+
+    if (source === CameraSource.Camera) {
+      fileInputRef.current.setAttribute("capture", "environment");
+    } else {
+      fileInputRef.current.removeAttribute("capture");
+    }
+
+    fileInputRef.current.click();
+  };
+
+  const takeNativePhoto = useCallback(async (source: CameraSource) => {
+    if (isOpeningPicker) return;
+
+    setIsOpeningPicker(true);
+    setCameraError(null);
+
+    try {
+      const hasPermission = await ensureNativePermissions(source);
+      if (!hasPermission) {
+        const deniedMessage =
+          source === CameraSource.Camera
+            ? "Camera permission is required. Please enable it in iPhone Settings."
+            : "Photo library permission is required. Please enable it in iPhone Settings.";
+        setCameraError(deniedMessage);
+        toast.error(deniedMessage);
+        return;
+      }
+
+      const image = await Camera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        resultType: CameraResultType.Uri,
+        source,
+        width: 1280,
+        correctOrientation: true,
+        presentationStyle: "fullscreen",
+      });
+
+      if (image.webPath) {
+        const response = await fetch(image.webPath);
+        const blob = await response.blob();
+        const dataUrl = await blobToDataUrl(blob);
+        const compressed = await resizeImage(dataUrl);
+        onCapture(compressed);
+        return;
+      }
+
+      if (image.dataUrl) {
+        const compressed = await resizeImage(image.dataUrl);
+        onCapture(compressed);
+        return;
+      }
+
+      toast.error("Failed to capture photo. Please try again.");
+    } catch (err: any) {
+      const msg = err?.message || "";
+      const normalizedMsg = msg.toLowerCase();
+
+      if (
+        normalizedMsg.includes("cancel") ||
+        normalizedMsg.includes("user cancelled") ||
+        normalizedMsg.includes("canceled")
+      ) {
+        return;
+      }
+
+      console.error("Native camera error:", err);
+
+      if (
+        normalizedMsg.includes("permission") ||
+        normalizedMsg.includes("denied") ||
+        normalizedMsg.includes("not authorized")
+      ) {
+        const permissionMessage =
+          source === CameraSource.Camera
+            ? "Camera access is blocked. Enable Camera permission in iPhone Settings."
+            : "Photo access is blocked. Enable Photos permission in iPhone Settings.";
+        setCameraError(permissionMessage);
+        toast.error(permissionMessage);
+        return;
+      }
+
+      openFileInputFallback(source);
+      toast.error(
+        source === CameraSource.Camera
+          ? "Native camera failed — using fallback picker."
+          : "Native photo picker failed — using fallback picker."
+      );
+    } finally {
+      setIsOpeningPicker(false);
+    }
+  }, [ensureNativePermissions, isOpeningPicker, onCapture]);
+
+  const openCamera = useCallback(() => {
+    setCameraError(null);
+    if (isNative) {
+      takeNativePhoto(CameraSource.Camera);
+    } else {
+      startWebCamera();
+    }
+  }, [isNative, startWebCamera, takeNativePhoto]);
+
+  const uploadPhoto = useCallback(() => {
+    setCameraError(null);
+    if (isNative) {
+      takeNativePhoto(CameraSource.Photos);
+    } else {
+      fileInputRef.current?.removeAttribute("capture");
+      fileInputRef.current?.click();
+    }
+  }, [isNative, takeNativePhoto]);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      const compressed = await resizeImage(base64);
+      onCapture(compressed);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   return (
@@ -180,7 +263,7 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
           variant="capture"
           size="lg"
           onClick={openCamera}
-          disabled={isAnalyzing}
+          disabled={isAnalyzing || isOpeningPicker}
           className="w-full"
         >
           <CameraIcon className="h-6 w-6" />
@@ -190,7 +273,7 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
           variant="outline"
           size="default"
           onClick={uploadPhoto}
-          disabled={isAnalyzing}
+          disabled={isAnalyzing || isOpeningPicker}
           className="w-full"
         >
           <ImagePlus className="h-5 w-5" />
