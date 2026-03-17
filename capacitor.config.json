@@ -12,9 +12,6 @@
         "photos": "This app needs photo library access so you can upload parking sign photos",
         "photosAdd": "This app needs access to save captured parking sign photos"
       }
-    },
-    "CameraPreview": {
-      "camera": "rear"
     }
   }
 }
