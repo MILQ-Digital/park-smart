@@ -123,26 +123,51 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
     setCameraError(null);
 
     try {
-      const hasPermission = await ensureNativePermissions(source);
-      if (!hasPermission) {
-        const deniedMessage =
-          source === CameraSource.Camera
-            ? "Camera permission is required. Please enable it in iPhone Settings."
-            : "Photo library permission is required. Please enable it in iPhone Settings.";
-        setCameraError(deniedMessage);
-        toast.error(deniedMessage);
-        return;
+      console.log("[Camera] Starting native photo, source:", source);
+      console.log("[Camera] Platform:", Capacitor.getPlatform());
+
+      // Check permissions
+      try {
+        const current = await Camera.checkPermissions();
+        console.log("[Camera] Current permissions:", JSON.stringify(current));
+
+        if (!hasRequiredPermission(source, current)) {
+          console.log("[Camera] Requesting permissions...");
+          const requested = await Camera.requestPermissions({
+            permissions: ["camera", "photos"],
+          });
+          console.log("[Camera] Requested permissions result:", JSON.stringify(requested));
+
+          if (!hasRequiredPermission(source, requested)) {
+            const deniedMessage =
+              source === CameraSource.Camera
+                ? "Camera permission is required. Please enable it in iPhone Settings."
+                : "Photo library permission is required. Please enable it in iPhone Settings.";
+            setCameraError(deniedMessage);
+            toast.error(deniedMessage);
+            return;
+          }
+        }
+      } catch (permErr) {
+        console.warn("[Camera] Permission check failed, attempting getPhoto anyway:", permErr);
       }
 
+      console.log("[Camera] Calling Camera.getPhoto...");
       const image = await Camera.getPhoto({
         quality: 80,
         allowEditing: false,
-        resultType: CameraResultType.Uri,
+        resultType: CameraResultType.DataUrl,
         source,
         width: 1280,
         correctOrientation: true,
-        presentationStyle: "fullscreen",
       });
+      console.log("[Camera] getPhoto returned, has dataUrl:", !!image.dataUrl, "has webPath:", !!image.webPath);
+
+      if (image.dataUrl) {
+        const compressed = await resizeImage(image.dataUrl);
+        onCapture(compressed);
+        return;
+      }
 
       if (image.webPath) {
         const response = await fetch(image.webPath);
@@ -153,16 +178,11 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
         return;
       }
 
-      if (image.dataUrl) {
-        const compressed = await resizeImage(image.dataUrl);
-        onCapture(compressed);
-        return;
-      }
-
       toast.error("Failed to capture photo. Please try again.");
     } catch (err: any) {
       const msg = err?.message || "";
       const normalizedMsg = msg.toLowerCase();
+      console.error("[Camera] Error:", msg, err);
 
       if (
         normalizedMsg.includes("cancel") ||
@@ -172,8 +192,6 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
         return;
       }
 
-      console.error("Native camera error:", err);
-
       if (
         normalizedMsg.includes("permission") ||
         normalizedMsg.includes("denied") ||
@@ -181,19 +199,16 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
       ) {
         const permissionMessage =
           source === CameraSource.Camera
-            ? "Camera access is blocked. Enable Camera permission in iPhone Settings."
-            : "Photo access is blocked. Enable Photos permission in iPhone Settings.";
+            ? "Camera access is blocked. Enable Camera permission in iPhone Settings > Can I Park Here."
+            : "Photo access is blocked. Enable Photos permission in iPhone Settings > Can I Park Here.";
         setCameraError(permissionMessage);
         toast.error(permissionMessage);
         return;
       }
 
+      // Fallback to file input
+      console.log("[Camera] Falling back to file input");
       openFileInputFallback(source);
-      toast.error(
-        source === CameraSource.Camera
-          ? "Native camera failed — using fallback picker."
-          : "Native photo picker failed — using fallback picker."
-      );
     } finally {
       setIsOpeningPicker(false);
     }
