@@ -10,6 +10,9 @@
       "permissions": {
         "camera": "This app needs camera access to take photos of parking signs"
       }
+    },
+    "CameraPreview": {
+      "camera": "rear"
     }
   }
 }
