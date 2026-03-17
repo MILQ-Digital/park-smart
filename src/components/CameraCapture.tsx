@@ -238,22 +238,36 @@ const CameraCapture = ({ onCapture, isAnalyzing }: CameraCaptureProps) => {
 
   const openCamera = useCallback(() => {
     setCameraError(null);
+
+    // iOS WKWebView fallback: keep picker invocation in direct user gesture.
+    if (isIOSNative) {
+      openFileInputFallback(CameraSource.Camera);
+      return;
+    }
+
     if (isNative) {
       takeNativePhoto(CameraSource.Camera);
     } else {
       startWebCamera();
     }
-  }, [isNative, startWebCamera, takeNativePhoto]);
+  }, [isIOSNative, isNative, startWebCamera, takeNativePhoto]);
 
   const uploadPhoto = useCallback(() => {
     setCameraError(null);
+
+    // iOS WKWebView fallback: avoid native bridge camera picker startup failures.
+    if (isIOSNative) {
+      openFileInputFallback(CameraSource.Photos);
+      return;
+    }
+
     if (isNative) {
       takeNativePhoto(CameraSource.Photos);
     } else {
       fileInputRef.current?.removeAttribute("capture");
       fileInputRef.current?.click();
     }
-  }, [isNative, takeNativePhoto]);
+  }, [isIOSNative, isNative, takeNativePhoto]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
